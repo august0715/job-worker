@@ -41,12 +41,12 @@ func NewWorkGroup(
 }
 
 func (worker *WorkGroup) Start() {
-	fmt.Printf("workGroup [%s] starting", worker.name)
+	fmt.Printf("workGroup [%s] starting\n", worker.name)
 	for i := 0; i < worker.parallelNum; i++ {
 		worker.wg.Add(1)
 		worker.startOneGoroutine(i)
 	}
-	fmt.Printf("workGroup [%s] started", worker.name)
+	fmt.Printf("workGroup [%s] started\n", worker.name)
 }
 
 func (worker *WorkGroup) startOneGoroutine(i int) {
@@ -56,7 +56,7 @@ func (worker *WorkGroup) startOneGoroutine(i int) {
 			select {
 			default:
 				func() {
-					defer HandleCrash()
+					defer HandleCrash(false)
 					// 这个把goroutine的index放到ctx里
 					worker.taskFunc(context.WithValue(worker.ctx, WorkGroupIndexKey, i))
 				}()
@@ -69,19 +69,12 @@ func (worker *WorkGroup) startOneGoroutine(i int) {
 
 // stop方法会等待taskFunc彻底退出
 func (worker *WorkGroup) Stop() {
-	fmt.Printf("workGroup [%s] stopping", worker.name)
+	fmt.Printf("workGroup [%s] stopping\n", worker.name)
 	worker.cancel()
 	// 等待真正停止信号
 	worker.wg.Wait()
-	fmt.Printf("workGroup [%s] stopped", worker.name)
+	fmt.Printf("workGroup [%s] stopped\n", worker.name)
 }
-
-var (
-	// ReallyCrash controls the behavior of HandleCrash and now defaults
-	// true. It's still exposed so components can optionally set to false
-	// to restore prior behavior.
-	ReallyCrash = true
-)
 
 // HandleCrash simply catches a crash and logs an error. Meant to be called via
 // defer.  Additional context-specific handlers can be provided, and will be
@@ -89,10 +82,10 @@ var (
 // handlers and logging the panic message.
 //
 // E.g., you can provide one or more additional handlers for something like shutting down go routines gracefully.
-func HandleCrash() {
+func HandleCrash(reallyCrash bool) {
 	if r := recover(); r != nil {
 		logPanic(r)
-		if ReallyCrash {
+		if reallyCrash {
 			// Actually proceed to panic.
 			panic(r)
 		}
