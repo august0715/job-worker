@@ -157,7 +157,7 @@ func (jw *JobWoker) heartBeat(ctx context.Context) {
 		jw.LastConnectTime = start
 	}
 	heartBeatFunc()
-	duration := time.Second
+	duration := time.Second * 5
 	timer := time.NewTimer(duration)
 	for {
 		select {
