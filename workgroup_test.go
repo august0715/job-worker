@@ -8,16 +8,12 @@ import (
 	"time"
 )
 
-func TestDefault(t *testing.T) {
-	t.Log("pass")
-}
-
 func TestStartRunner1(t *testing.T) {
 	var count int32 = 0
 	var count2 int32 = 0
 
 	i := &count
-	pn := rand.Intn(100)
+	pn := rand.Intn(10)
 	r := NewWorkGroup(context.Background(), "test", func(ctx context.Context) {
 		time.Sleep(5 * time.Second)
 		atomic.AddInt32(i, 1)
@@ -55,7 +51,7 @@ func TestStartRunner2(t *testing.T) {
 	time.Sleep(time.Second * 5)
 
 	var sum int32
-	cc := rand.Intn(100)
+	cc := rand.Intn(10)
 	for i := 0; i < cc; i++ {
 		n := int32(rand.Intn(100))
 		sum += n

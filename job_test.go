@@ -104,7 +104,7 @@ func TestJobWoker_Start(t *testing.T) {
 			WorkerId:  "1",
 			WorkQueue: "test",
 			Version:   "0.0.1",
-			WorkerNum: 20,
+			WorkerNum: 5,
 		},
 		Consume:     tc,
 		TaskService: ts,
