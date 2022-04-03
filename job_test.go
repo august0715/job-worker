@@ -136,6 +136,8 @@ func TestJobWoker_Start(t *testing.T) {
 		config := tasks[k].Config
 		if v.FinalState != config["finalState"].(FinalState) {
 			t.Errorf("%s failed,expect state %d,really state %d", k, config["finalState"], v.FinalState)
+		} else {
+			t.Logf("%s successed,state %d", k, v.FinalState)
 		}
 	}
 }
