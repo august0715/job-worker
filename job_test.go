@@ -177,7 +177,6 @@ func (t *TaskService1) GetTask(ctx context.Context, id string) (*Task, error) {
 
 }
 func (t *TaskService1) UpdateTask(ctx context.Context, task *TaskResult) error {
-	t.taskResults[task.Id] = task
 	// fmt.Printf("task = %v", task)
 	return nil
 

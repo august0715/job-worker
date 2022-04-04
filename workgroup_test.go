@@ -10,14 +10,11 @@ import (
 
 func TestStartRunner1(t *testing.T) {
 	var count int32 = 0
-	var count2 int32 = 0
-
 	i := &count
 	pn := rand.Intn(10)
 	r := NewWorkGroup(context.Background(), "test", func(ctx context.Context) {
 		time.Sleep(5 * time.Second)
 		atomic.AddInt32(i, 1)
-		count2++
 		t.Log("end ", ctx.Value(WorkGroupIndexKey))
 	}, pn)
 	r.Start()

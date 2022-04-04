@@ -107,20 +107,29 @@ type taskJob struct {
 	taskId     string
 	task       *Task
 	taskResult *TaskResult
+}
+
+// we use another struct(taskJobCtx) to store CancelFunc,  to avoid race conditions,@see https://go.dev/blog/race-detector
+type taskJobCtx struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 }
 
+func (tj *taskJobCtx) cancel() {
+	tj.cancelFunc()
+}
+
 type JobWoker struct {
 	*WorkerInfo
-	Consume      func(context.Context, *Task) error
-	TaskService  TaskService
-	eventChan    chan *Event
-	heartBeater  *WorkGroup
-	informers    *WorkGroup
-	handlers     *WorkGroup
-	ctx          context.Context
-	runningTasks sync.Map
+	Consume         func(context.Context, *Task) error
+	TaskService     TaskService
+	eventChan       chan *Event
+	heartBeater     *WorkGroup
+	informers       *WorkGroup
+	handlers        *WorkGroup
+	ctx             context.Context
+	runningTasks    sync.Map
+	runningTaskCtxs sync.Map
 }
 
 func (jw *JobWoker) Start(ctx context.Context) error {
@@ -201,11 +210,11 @@ func (jw *JobWoker) handle(ctx context.Context) {
 					logChan:       make(chan string, 1024),
 					TimeStart:     time.Now()},
 			}
-			jw.runningTasks.Store(taskId, taskJob)
+			jw.runningTasks.Store(taskJob.taskId, taskJob)
 			jw.executeTaskJob(ctx, taskJob)
 		} else if event.EventType == EventTypeCancel {
-			if v, ok := jw.runningTasks.Load(taskId); ok {
-				v.(*taskJob).cancelFunc()
+			if v, ok := jw.runningTaskCtxs.Load(taskId); ok {
+				v.(*taskJobCtx).cancel()
 			}
 		}
 	default:
@@ -254,8 +263,13 @@ func (jw *JobWoker) executeTaskJob(parentCtx context.Context, taskJob *taskJob) 
 	}
 	task := taskJob.task
 	ctx, cancel := jw.taskCtx(task)
-	taskJob.ctx = ctx
-	taskJob.cancelFunc = cancel
+	// store taskJobCtx
+	jw.runningTaskCtxs.Store(taskJob.taskId, &taskJobCtx{
+		ctx:        ctx,
+		cancelFunc: cancel,
+	})
+	defer jw.runningTaskCtxs.Delete(taskJob.taskId)
+
 	done := make(chan struct{})
 	go func() {
 		defer func() {

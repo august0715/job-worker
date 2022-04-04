@@ -44,27 +44,23 @@ func (worker *WorkGroup) Start() {
 	fmt.Printf("workGroup [%s] starting\n", worker.name)
 	for i := 0; i < worker.parallelNum; i++ {
 		worker.wg.Add(1)
-		worker.startOneGoroutine(i)
+		go func(index int) {
+			defer worker.wg.Done()
+			for {
+				select {
+				default:
+					func() {
+						defer HandleCrash(false)
+						// 这个把goroutine的index放到ctx里
+						worker.taskFunc(context.WithValue(worker.ctx, WorkGroupIndexKey, index))
+					}()
+				case <-worker.ctx.Done():
+					return
+				}
+			}
+		}(i)
 	}
 	fmt.Printf("workGroup [%s] started\n", worker.name)
-}
-
-func (worker *WorkGroup) startOneGoroutine(i int) {
-	go func() {
-		defer worker.wg.Done()
-		for {
-			select {
-			default:
-				func() {
-					defer HandleCrash(false)
-					// 这个把goroutine的index放到ctx里
-					worker.taskFunc(context.WithValue(worker.ctx, WorkGroupIndexKey, i))
-				}()
-			case <-worker.ctx.Done():
-				return
-			}
-		}
-	}()
 }
 
 // stop方法会等待taskFunc彻底退出
