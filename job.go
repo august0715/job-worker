@@ -37,10 +37,10 @@ const (
 	TaskFailed
 )
 
-// type KeyAble interface {
-// 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~string
-// }
-
+type Event struct {
+	TaskId    string
+	EventType EventType
+}
 type Task struct {
 	// 任务的id
 	Id string
@@ -71,9 +71,10 @@ func (taskResult *TaskResult) Append(line string) {
 	taskResult.logChan <- line
 }
 
-type Event struct {
-	TaskId    string
-	EventType EventType
+type TaskJob struct {
+	Id         string
+	Task       *Task
+	TaskResult *TaskResult
 }
 
 type TaskService interface {
@@ -83,7 +84,7 @@ type TaskService interface {
 	Watch(ctx context.Context) (*Event, error)
 	// Handle(ctx context.Context, event *Event) error
 	GetTask(ctx context.Context, id string) (*Task, error)
-	UpdateTask(ctx context.Context, task *TaskResult) error
+	UpdateTask(ctx context.Context, taskJob *TaskJob) error
 	AppendLog(ctx context.Context, id string, log string) error
 }
 
@@ -103,11 +104,6 @@ type WorkerInfo struct {
 	LastConnectTime time.Time
 	WorkerDelay     time.Duration
 }
-type taskJob struct {
-	taskId     string
-	task       *Task
-	taskResult *TaskResult
-}
 
 // we use another struct(taskJobCtx) to store CancelFunc,  to avoid race conditions,@see https://go.dev/blog/race-detector
 type taskJobCtx struct {
@@ -121,7 +117,7 @@ func (tj *taskJobCtx) cancel() {
 
 type JobWoker struct {
 	*WorkerInfo
-	Consume         func(context.Context, *Task) error
+	Consume         func(context.Context, *TaskJob) error
 	TaskService     TaskService
 	eventChan       chan *Event
 	heartBeater     *WorkGroup
@@ -201,16 +197,16 @@ func (jw *JobWoker) handle(ctx context.Context) {
 		if event.EventType == EventTypeExecute {
 			defer jw.runningTasks.Delete(taskId)
 			var progress int = 0
-			taskJob := &taskJob{
-				taskId: taskId,
-				taskResult: &TaskResult{
+			taskJob := &TaskJob{
+				Id: taskId,
+				TaskResult: &TaskResult{
 					Id:            taskId,
 					Progress:      &progress,
 					ExecuteStatus: TaskRunning,
 					logChan:       make(chan string, 1024),
 					TimeStart:     time.Now()},
 			}
-			jw.runningTasks.Store(taskJob.taskId, taskJob)
+			jw.runningTasks.Store(taskJob.Id, taskJob)
 			jw.executeTaskJob(ctx, taskJob)
 		} else if event.EventType == EventTypeCancel {
 			if v, ok := jw.runningTaskCtxs.Load(taskId); ok {
@@ -221,10 +217,10 @@ func (jw *JobWoker) handle(ctx context.Context) {
 	}
 }
 
-func (jw *JobWoker) getTask(ctx context.Context, taskJob *taskJob) bool {
+func (jw *JobWoker) getTask(ctx context.Context, taskJob *TaskJob) bool {
 	taskService := jw.TaskService
-	taskId := taskJob.taskId
-	taskResult := taskJob.taskResult
+	taskId := taskJob.Id
+	taskResult := taskJob.TaskResult
 	task, err := taskService.GetTask(ctx, taskId)
 	if task == nil && err == nil {
 		err = errors.New("cannot find taskInfo for taskId: " + taskId)
@@ -235,7 +231,7 @@ func (jw *JobWoker) getTask(ctx context.Context, taskJob *taskJob) bool {
 		taskService.AppendLog(ctx, taskId, "task faild")
 		return false
 	}
-	taskJob.task = task
+	taskJob.Task = task
 	return true
 }
 
@@ -254,21 +250,21 @@ func (jw *JobWoker) taskCtx(task *Task) (context.Context, context.CancelFunc) {
 	}
 }
 
-func (jw *JobWoker) executeTaskJob(parentCtx context.Context, taskJob *taskJob) {
+func (jw *JobWoker) executeTaskJob(parentCtx context.Context, taskJob *TaskJob) {
 	taskService := jw.TaskService
-	taskResult := taskJob.taskResult
-	defer taskService.UpdateTask(parentCtx, taskResult)
+	defer taskService.UpdateTask(parentCtx, taskJob)
+	taskResult := taskJob.TaskResult
 	if !jw.getTask(parentCtx, taskJob) {
 		return
 	}
-	task := taskJob.task
+	task := taskJob.Task
 	ctx, cancel := jw.taskCtx(task)
 	// store taskJobCtx
-	jw.runningTaskCtxs.Store(taskJob.taskId, &taskJobCtx{
+	jw.runningTaskCtxs.Store(taskJob.Id, &taskJobCtx{
 		ctx:        ctx,
 		cancelFunc: cancel,
 	})
-	defer jw.runningTaskCtxs.Delete(taskJob.taskId)
+	defer jw.runningTaskCtxs.Delete(taskJob.Id)
 
 	done := make(chan struct{})
 	go func() {
@@ -293,7 +289,7 @@ func (jw *JobWoker) executeTaskJob(parentCtx context.Context, taskJob *taskJob) 
 					taskResult.logChan <- string(stacktrace)
 				}
 			}()
-			return jw.Consume(context.WithValue(ctx, "taskResult", taskResult), task)
+			return jw.Consume(ctx, taskJob)
 		}()
 		ctxErr := ctx.Err()
 		if err == nil {
@@ -334,7 +330,7 @@ func (jw *JobWoker) executeTaskJob(parentCtx context.Context, taskJob *taskJob) 
 					return
 				case <-timer.C:
 					{
-						taskService.UpdateTask(ctx, taskResult)
+						taskService.UpdateTask(ctx, taskJob)
 						timer.Reset(Jitter(duration, 0))
 					}
 				}

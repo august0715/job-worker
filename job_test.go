@@ -74,7 +74,8 @@ func TestJobWoker_Start(t *testing.T) {
 	}
 	taskResults := map[string]*TaskResult{}
 
-	tc := func(ctx context.Context, task *Task) error {
+	tc := func(ctx context.Context, taskJob *TaskJob) error {
+		task := taskJob.Task
 		if task.Id == "3" {
 			panic("panic error for 3")
 		}
@@ -176,7 +177,7 @@ func (t *TaskService1) GetTask(ctx context.Context, id string) (*Task, error) {
 	return r, nil
 
 }
-func (t *TaskService1) UpdateTask(ctx context.Context, task *TaskResult) error {
+func (t *TaskService1) UpdateTask(ctx context.Context, task *TaskJob) error {
 	// fmt.Printf("task = %v", task)
 	return nil
 
