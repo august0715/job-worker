@@ -109,8 +109,8 @@ func logPanic(r any) {
 	stacktrace := make([]byte, size)
 	stacktrace = stacktrace[:runtime.Stack(stacktrace, false)]
 	if _, ok := r.(string); ok {
-		fmt.Printf("Observed a panic: %s\n%s", r, stacktrace)
+		fmt.Printf("Observed a panic: %s\n%s\n", r, stacktrace)
 	} else {
-		fmt.Printf("Observed a panic: %#v (%v)\n%s", r, r, stacktrace)
+		fmt.Printf("Observed a panic: %#v (%v)\n%s\n", r, r, stacktrace)
 	}
 }
