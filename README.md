@@ -1,4 +1,4 @@
-# job-runner
+# job-worker
 
 [![Go](https://github.com/august0715/job-worker/actions/workflows/go.yml/badge.svg)](https://github.com/august0715/job-worker/actions/workflows/go.yml)
 [![codecov](https://codecov.io/gh/august0715/job-worker/branch/main/graph/badge.svg)](https://codecov.io/gh/august0715/job-worker)
@@ -15,13 +15,16 @@
 
 1. `TaskService`接口, 此接口是对`apiserver`的功能的抽象。
 
-2. `JobWoker.Consume`，此方法是对任务具体的抽象，
-
-
-框架实现了任务的执行、取消、超时、日志上报、优雅关闭等功能，这些都大量依赖`context.Context`。
-
-所以本项目另外一个目的是能帮助大家彻底理解`context.Context`，知道其相关使用场景以及如何使用，当然`channel`也能更熟练。理解此项目就能熟练掌握`go并发编程`了。
+2. `JobWoker.Consume`，此方法是对任务具体如何执行的抽象，失败就返回一个非空的error。
 
 demo见[job_test.go](job_test.go)
 
-另外，apiserver端可以简单使用redis的brop实现，当然不考虑到分布式场景channel也可以。
+框架实现了任务的执行、取消、超时、日志上报、优雅关闭等功能，这些都大量依赖`context.Context`。
+
+所以本项目另外一个目的是能帮助大家彻底掌握`context.Context`，知道其相关使用场景以及如何使用。理解此项目就能熟练掌握`go并发编程`了。
+
+其他：
+
+- 此库中的`WorkGroup`可以作为线程池使用。
+- apiserver端可以简单使用redis的brop实现，当然不考虑到分布式场景channel也可以。
+- 此库通过[race-detector]([Introducing the Go Race Detector - The Go Programming Language](https://go.dev/blog/race-detector))规则校验
