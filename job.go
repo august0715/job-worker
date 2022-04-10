@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var TaskNotFound = errors.New("task not found")
+
 type EventType int
 
 const (
@@ -41,16 +43,15 @@ type Event struct {
 	TaskId    string
 	EventType EventType
 }
-type Task struct {
+type Task interface {
 	// 任务的id
-	Id string
+	Id() string
 	// 任务超时时间
-	Timeout time.Duration
-	Config  map[string]any
+	Timeout() time.Duration
 }
 type TaskResult struct {
 	Id               string
-	Progress         *int
+	Progress         *int //[0,100]
 	ExecuteStatus    ExecuteStatus
 	FinalState       FinalState
 	FinalStateReason string
@@ -71,26 +72,26 @@ func (taskResult *TaskResult) Append(line string) {
 	taskResult.logChan <- line
 }
 
-type TaskJob struct {
+type TaskJob[T Task] struct {
 	Id         string
-	Task       *Task
+	Task       T
 	TaskResult *TaskResult
 }
 
-type TaskService interface {
+type TaskService[T Task] interface {
 	// 返回workerId
 	Register(ctx context.Context, workInfo *WorkerInfo) error
 	HeartBeat(ctx context.Context, workInfo *WorkerInfo) error
 	Watch(ctx context.Context) (*Event, error)
 	// Handle(ctx context.Context, event *Event) error
-	GetTask(ctx context.Context, id string) (*Task, error)
-	UpdateTask(ctx context.Context, taskJob *TaskJob) error
+	GetTask(ctx context.Context, id string) (T, error)
+	UpdateTask(ctx context.Context, taskJob *TaskJob[T]) error
 	AppendLog(ctx context.Context, id string, log string) error
 }
 
-type Consumer interface {
-	Do(context.Context, *Task) error
-}
+// type Consumer interface {
+// 	Do(context.Context, *Task) error
+// }
 
 type WorkerInfo struct {
 	WorkerId  string
@@ -115,10 +116,10 @@ func (tj *taskJobCtx) cancel() {
 	tj.cancelFunc()
 }
 
-type JobWoker struct {
+type JobWoker[T Task] struct {
 	*WorkerInfo
-	Consume         func(context.Context, *TaskJob) error
-	TaskService     TaskService
+	Consume         func(context.Context, *TaskJob[T]) error
+	TaskService     TaskService[T]
 	eventChan       chan *Event
 	heartBeater     *WorkGroup
 	informers       *WorkGroup
@@ -128,7 +129,7 @@ type JobWoker struct {
 	runningTaskCtxs sync.Map
 }
 
-func (jw *JobWoker) Start(ctx context.Context) error {
+func (jw *JobWoker[T]) Start(ctx context.Context) error {
 	jw.ctx = ctx
 	// TODO Check
 	jw.LocalIP = getLocalIP()
@@ -146,13 +147,13 @@ func (jw *JobWoker) Start(ctx context.Context) error {
 	return nil
 }
 
-func (jw *JobWoker) Stop() {
+func (jw *JobWoker[T]) Stop() {
 	jw.informers.Stop()
 	jw.handlers.Stop()
 	jw.heartBeater.Stop()
 }
 
-func (jw *JobWoker) heartBeat(ctx context.Context) {
+func (jw *JobWoker[T]) heartBeat(ctx context.Context) {
 	heartBeatFunc := func() {
 		start := time.Now()
 		if err := jw.TaskService.HeartBeat(ctx, jw.WorkerInfo); err != nil {
@@ -175,7 +176,7 @@ func (jw *JobWoker) heartBeat(ctx context.Context) {
 	}
 }
 
-func (jw *JobWoker) inform(ctx context.Context) {
+func (jw *JobWoker[T]) inform(ctx context.Context) {
 	var err error
 	defer func() {
 		if err != nil {
@@ -190,14 +191,14 @@ func (jw *JobWoker) inform(ctx context.Context) {
 
 }
 
-func (jw *JobWoker) handle(ctx context.Context) {
+func (jw *JobWoker[T]) handle(ctx context.Context) {
 	select {
 	case event := <-jw.eventChan:
 		taskId := event.TaskId
 		if event.EventType == EventTypeExecute {
 			defer jw.runningTasks.Delete(taskId)
 			var progress int = 0
-			taskJob := &TaskJob{
+			taskJob := &TaskJob[T]{
 				Id: taskId,
 				TaskResult: &TaskResult{
 					Id:            taskId,
@@ -217,12 +218,12 @@ func (jw *JobWoker) handle(ctx context.Context) {
 	}
 }
 
-func (jw *JobWoker) getTask(ctx context.Context, taskJob *TaskJob) bool {
+func (jw *JobWoker[T]) getTask(ctx context.Context, taskJob *TaskJob[T]) bool {
 	taskService := jw.TaskService
 	taskId := taskJob.Id
 	taskResult := taskJob.TaskResult
 	task, err := taskService.GetTask(ctx, taskId)
-	if task == nil && err == nil {
+	if err == TaskNotFound {
 		err = errors.New("cannot find taskInfo for taskId: " + taskId)
 	}
 	if err != nil {
@@ -235,12 +236,12 @@ func (jw *JobWoker) getTask(ctx context.Context, taskJob *TaskJob) bool {
 	return true
 }
 
-func (jw *JobWoker) taskCtx(task *Task) (context.Context, context.CancelFunc) {
+func (jw *JobWoker[T]) taskCtx(task Task) (context.Context, context.CancelFunc) {
 	//注意，不能使用parentCtx。因为parentCtx是本身worker节点的rootCtx传过来的：
 	//如果worker程序停止，那么parentCtx会Done,会传递到正在执行的任务，要避免这种传递性。保证正在执行的任务结束
-	if task.Timeout != 0 {
+	if task.Timeout() != 0 {
 		//任务超时
-		return context.WithTimeout(context.TODO(), task.Timeout)
+		return context.WithTimeout(context.TODO(), task.Timeout())
 	} else if jw.WorkerInfo.Timeout != 0 {
 		//任务超时
 		return context.WithTimeout(context.TODO(), jw.WorkerInfo.Timeout)
@@ -250,7 +251,7 @@ func (jw *JobWoker) taskCtx(task *Task) (context.Context, context.CancelFunc) {
 	}
 }
 
-func (jw *JobWoker) executeTaskJob(parentCtx context.Context, taskJob *TaskJob) {
+func (jw *JobWoker[T]) executeTaskJob(parentCtx context.Context, taskJob *TaskJob[T]) {
 	taskService := jw.TaskService
 	defer taskService.UpdateTask(parentCtx, taskJob)
 	taskResult := taskJob.TaskResult
@@ -320,7 +321,7 @@ func (jw *JobWoker) executeTaskJob(parentCtx context.Context, taskJob *TaskJob) 
 	for {
 		select {
 		case line := <-taskResult.logChan:
-			taskService.AppendLog(ctx, task.Id, line)
+			taskService.AppendLog(ctx, task.Id(), line)
 		default:
 			{
 				select {

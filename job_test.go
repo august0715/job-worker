@@ -8,64 +8,78 @@ import (
 	"time"
 )
 
+type testTask struct {
+	id      string
+	timeout time.Duration
+	config  map[string]any
+}
+
+func (t *testTask) Id() string {
+	return t.id
+}
+
+func (t *testTask) Timeout() time.Duration {
+	return t.timeout
+}
+
 func TestJobWoker_Start(t *testing.T) {
-	tasks := map[string]*Task{
+	tasks := map[string]*testTask{
 		"1": { //正常场景
-			Config: map[string]any{
+			config: map[string]any{
 				"cmd":        "date",
 				"finalState": TaskSucceeded,
 				"events":     []EventType{EventTypeExecute},
 			},
 		}, "2": { //异常
-			Config: map[string]any{
+			config: map[string]any{
 				"cmd":        "xxxxx",
 				"finalState": TaskFailed,
 				"events":     []EventType{EventTypeExecute},
 			},
 		}, "3": { //堆栈异常
-			Config: map[string]any{
+			config: map[string]any{
 				"cmd":        "panic error",
 				"finalState": TaskFailed,
 				"events":     []EventType{EventTypeExecute},
 			},
 		}, "4": { //超时
-			Timeout: time.Second * 2,
-			Config: map[string]any{
+			timeout: time.Second * 2,
+			config: map[string]any{
 				"cmd":        "sleep 5",
 				"finalState": TaskTimeout,
 				"events":     []EventType{EventTypeExecute},
 			},
 		}, "5": { //超时无法取消
-			Timeout: time.Second * 2,
-			Config: map[string]any{
+			timeout: time.Second * 2,
+			config: map[string]any{
 				"cmd":        "sleep 5",
 				"p":          "1",
 				"finalState": TaskSucceeded,
 				"events":     []EventType{EventTypeExecute},
 			},
 		}, "6": { //取消
-			Config: map[string]any{
+			config: map[string]any{
 				"cmd":        "sleep 1000",
 				"finalState": TaskCanceled,
 				"events":     []EventType{EventTypeExecute, EventTypeCancel},
 			},
 		}, "7": { //无法取消
-			Config: map[string]any{
+			config: map[string]any{
 				"cmd":        "sleep 6",
 				"p":          "1",
 				"finalState": TaskSucceeded,
 				"events":     []EventType{EventTypeExecute, EventTypeCancel},
 			},
 		}, "8": { //超时+取消,超时时间长，优先被取消
-			Timeout: time.Second * 10,
-			Config: map[string]any{
+			timeout: time.Second * 10,
+			config: map[string]any{
 				"cmd":        "sleep 6",
 				"finalState": TaskCanceled,
 				"events":     []EventType{EventTypeExecute, EventTypeCancel},
 			},
 		}, "9": { //超时+取消,超时时间短，超时优先
-			Timeout: time.Second,
-			Config: map[string]any{
+			timeout: time.Second,
+			config: map[string]any{
 				"cmd":        "sleep 6",
 				"finalState": TaskTimeout,
 				"events":     []EventType{EventTypeExecute, EventTypeCancel},
@@ -74,13 +88,13 @@ func TestJobWoker_Start(t *testing.T) {
 	}
 	taskResults := map[string]*TaskResult{}
 
-	tc := func(ctx context.Context, taskJob *TaskJob) error {
+	tc := func(ctx context.Context, taskJob *TaskJob[*testTask]) error {
 		task := taskJob.Task
-		if task.Id == "3" {
+		if task.Id() == "3" {
 			panic("panic error for 3")
 		}
-		c := task.Config["cmd"]
-		if _, useP := task.Config["p"]; useP {
+		c := task.config["cmd"]
+		if _, useP := task.config["p"]; useP {
 			ctx = context.TODO()
 		}
 		fmt.Println(c)
@@ -100,7 +114,7 @@ func TestJobWoker_Start(t *testing.T) {
 		t:           t,
 		taskResults: taskResults,
 	}
-	jw := &JobWoker{
+	jw := &JobWoker[*testTask]{
 		WorkerInfo: &WorkerInfo{
 			WorkerId:  "1",
 			WorkQueue: "test",
@@ -117,8 +131,8 @@ func TestJobWoker_Start(t *testing.T) {
 		// if k != "9" {
 		// 	continue
 		// }
-		v.Id = k
-		config := tasks[k].Config
+		v.id = k
+		config := tasks[k].config
 		evs, _ := config["events"]
 		evss := evs.([]EventType)
 		for i, ee := range evss {
@@ -134,7 +148,7 @@ func TestJobWoker_Start(t *testing.T) {
 	jw.Stop()
 	// time.Sleep(time.Second * 15)
 	for k, v := range taskResults {
-		config := tasks[k].Config
+		config := tasks[k].config
 		if v.FinalState != config["finalState"].(FinalState) {
 			t.Errorf("%s failed,expect state %d,really state %d", k, config["finalState"], v.FinalState)
 		} else {
@@ -144,7 +158,7 @@ func TestJobWoker_Start(t *testing.T) {
 }
 
 type TaskService1 struct {
-	tasks       map[string]*Task
+	tasks       map[string]*testTask
 	taskResults map[string]*TaskResult
 	eventCh     chan *Event
 	t           *testing.T
@@ -171,13 +185,13 @@ func (t *TaskService1) Watch(ctx context.Context) (*Event, error) {
 }
 
 // Handle(ctx context.Context, event *Event) error
-func (t *TaskService1) GetTask(ctx context.Context, id string) (*Task, error) {
+func (t *TaskService1) GetTask(ctx context.Context, id string) (*testTask, error) {
 	r, _ := t.tasks[id]
-	r.Id = id
+	r.id = id
 	return r, nil
 
 }
-func (t *TaskService1) UpdateTask(ctx context.Context, task *TaskJob) error {
+func (t *TaskService1) UpdateTask(ctx context.Context, task *TaskJob[*testTask]) error {
 	// fmt.Printf("task = %v", task)
 	return nil
 
