@@ -27,4 +27,4 @@ demo见[job_test.go](job_test.go)
 
 - 此库中的`WorkGroup`可以作为线程池使用。
 - apiserver端可以简单使用redis的brop实现，当然不考虑到分布式场景channel也可以。
-- 此库通过[race-detector]([Introducing the Go Race Detector - The Go Programming Language](https://go.dev/blog/race-detector))规则校验
+- 此库通过[race-detector](https://go.dev/blog/race-detector)规则校验
