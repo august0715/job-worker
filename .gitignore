@@ -16,3 +16,5 @@
 .vscode
 codecov
 coverage.txt
+*.drawio
+.DS_Store

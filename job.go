@@ -82,7 +82,7 @@ type TaskService[T Task] interface {
 	// 返回workerId
 	Register(ctx context.Context, workInfo *WorkerInfo) error
 	HeartBeat(ctx context.Context, workInfo *WorkerInfo) error
-	Watch(ctx context.Context) (*Event, error)
+	Watch(ctx context.Context, workInfo *WorkerInfo) (*Event, error)
 	// Handle(ctx context.Context, event *Event) error
 	GetTask(ctx context.Context, id string) (T, error)
 	UpdateTask(ctx context.Context, taskJob *TaskJob[T]) error
@@ -95,7 +95,7 @@ type TaskService[T Task] interface {
 
 type WorkerInfo struct {
 	WorkerId  string
-	WorkQueue string
+	WorkQueue string //工作队列，主要用于服务端会有很多WorkQueue。客户端只监听自己的WorkQueue。
 	Version   string
 	WorkerNum int
 	//全局超时,优先使用任务设置的超时，然后是全局的。为0时代表全局不超时
@@ -183,7 +183,7 @@ func (jw *JobWoker[T]) inform(ctx context.Context) {
 			log.Println(err.Error())
 		}
 	}()
-	if event, err := jw.TaskService.Watch(ctx); err != nil {
+	if event, err := jw.TaskService.Watch(ctx, jw.WorkerInfo); err != nil {
 		return
 	} else if event != nil {
 		jw.eventChan <- event

@@ -172,7 +172,7 @@ func (t *TaskService1) HeartBeat(ctx context.Context, workInfo *WorkerInfo) erro
 	return nil
 
 }
-func (t *TaskService1) Watch(ctx context.Context) (*Event, error) {
+func (t *TaskService1) Watch(ctx context.Context, workInfo *WorkerInfo) (*Event, error) {
 	for {
 		select {
 		case e := <-t.eventCh:
