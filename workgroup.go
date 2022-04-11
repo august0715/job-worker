@@ -26,29 +26,29 @@ const WorkGroupIndexKey = "workgroup_index"
 // 所以有workerGroup的封装：workerGroup的stop方法，会同步等待任务真正stop
 // 一个workerGroup对应一组goroutine，数量为parallelNum
 type WorkGroup struct {
-	name        string
-	taskFunc    func(ctx context.Context)
-	ctx         context.Context
-	cancel      context.CancelFunc
-	parallelNum int
-	wg          sync.WaitGroup
+	name         string
+	taskLoopFunc func(ctx context.Context)
+	ctx          context.Context
+	cancel       context.CancelFunc
+	parallelNum  int
+	wg           sync.WaitGroup
 }
 
 func NewWorkGroup(
 	parentCtx context.Context,
 	name string,
-	taskFunc func(ctx context.Context),
+	taskLoopFunc func(ctx context.Context),
 	parallelNum int) *WorkGroup {
 	if parallelNum < 1 {
 		panic("parallelNum must be positive")
 	}
 	ctx, cancel := context.WithCancel(parentCtx)
 	r := &WorkGroup{name: name,
-		taskFunc:    taskFunc,
-		ctx:         ctx,
-		cancel:      cancel,
-		parallelNum: parallelNum,
-		wg:          sync.WaitGroup{}}
+		taskLoopFunc: taskLoopFunc,
+		ctx:          ctx,
+		cancel:       cancel,
+		parallelNum:  parallelNum,
+		wg:           sync.WaitGroup{}}
 
 	return r
 }
@@ -57,7 +57,9 @@ func (worker *WorkGroup) Start() {
 	fmt.Printf("workGroup [%s] starting\n", worker.name)
 	for i := 0; i < worker.parallelNum; i++ {
 		worker.wg.Add(1)
+		done := make(chan struct{})
 		go func(index int) {
+			done <- struct{}{}
 			defer worker.wg.Done()
 			for {
 				select {
@@ -65,13 +67,14 @@ func (worker *WorkGroup) Start() {
 					func() {
 						defer HandleCrash(false)
 						// 这个把goroutine的index放到ctx里
-						worker.taskFunc(context.WithValue(worker.ctx, WorkGroupIndexKey, index))
+						worker.taskLoopFunc(context.WithValue(worker.ctx, WorkGroupIndexKey, index))
 					}()
 				case <-worker.ctx.Done():
 					return
 				}
 			}
 		}(i)
+		<-done //ensure go routing started
 	}
 	fmt.Printf("workGroup [%s] started\n", worker.name)
 }

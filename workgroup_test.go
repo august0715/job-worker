@@ -16,24 +16,32 @@ package job
 import (
 	"context"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestStartRunner1(t *testing.T) {
 	var count int32 = 0
 	i := &count
-	pn := rand.Intn(10)
+	pn := rand.Intn(100)
+	runStates := sync.Map{}
 	r := NewWorkGroup(context.Background(), "test", func(ctx context.Context) {
-		time.Sleep(5 * time.Second)
 		atomic.AddInt32(i, 1)
-		t.Log("end ", ctx.Value(WorkGroupIndexKey))
+		runStates.Store(ctx.Value(WorkGroupIndexKey), true)
 	}, pn)
 	r.Start()
-	time.Sleep(time.Second * 3)
 	r.Stop()
-	if int(count) != pn {
+	if int(count) < pn {
+		t.Fail()
+	}
+	runStateCount := 0
+	runStates.Range(func(key, value any) bool {
+		runStateCount++
+		return true
+	})
+
+	if runStateCount != pn {
 		t.Fail()
 	}
 }
@@ -41,7 +49,7 @@ func TestStartRunner1(t *testing.T) {
 func TestStartRunner2(t *testing.T) {
 	var end int32 = 0
 	i := &end
-	ch := make(chan int32, 2)
+	ch := make(chan int32, 20)
 	r := NewWorkGroup(context.Background(), "test", func(ctx context.Context) {
 	l:
 		for {
@@ -50,16 +58,10 @@ func TestStartRunner2(t *testing.T) {
 				atomic.AddInt32(i, j)
 			case <-ctx.Done():
 				break l
-				// default:
 			}
-			// fmt.Println("123")
-			time.Sleep(time.Microsecond * 10)
 		}
-
 	}, 4)
 	r.Start()
-	time.Sleep(time.Second * 5)
-
 	var sum int32
 	cc := rand.Intn(10)
 	for i := 0; i < cc; i++ {
@@ -69,6 +71,32 @@ func TestStartRunner2(t *testing.T) {
 	}
 	r.Stop()
 	if end != sum {
+		t.Fail()
+	}
+}
+
+func TestStartRunner3(t *testing.T) {
+	var count int32 = 0
+	i := &count
+	pn := rand.Intn(100)
+	runStates := sync.Map{}
+	r := NewWorkGroup(context.Background(), "test", func(ctx context.Context) {
+		atomic.AddInt32(i, 1)
+		runStates.Store(ctx.Value(WorkGroupIndexKey), true)
+		panic("unexpected error")
+	}, pn)
+	r.Start()
+	r.Stop()
+	if int(count) < pn {
+		t.Fail()
+	}
+	runStateCount := 0
+	runStates.Range(func(key, value any) bool {
+		runStateCount++
+		return true
+	})
+
+	if runStateCount != pn {
 		t.Fail()
 	}
 }
